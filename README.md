@@ -7,6 +7,8 @@ A distributed, event-driven healthcare system that demonstrates end-to-end clini
 ![FHIR](https://img.shields.io/badge/FHIR-R4-red)
 ![AI](https://img.shields.io/badge/AI-Claude%20%2F%20GPT--4o-blue)
 
+![Steer Health Dashboard](steer_health_dashboard.png)
+
 ---
 
 ## What This Demonstrates

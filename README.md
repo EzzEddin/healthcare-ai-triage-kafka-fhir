@@ -289,4 +289,4 @@ The architecture naturally supports this:
 
 ## License
 
-Built as a technical demonstration for Steer Health.
+Built as a technical demonstration for Steer Health. MIT License — see [LICENSE](LICENSE) for details.

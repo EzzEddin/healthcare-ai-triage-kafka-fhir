@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased text-gray-900;
+  }
+}
+
+@layer components {
+  .urgency-emergency {
+    @apply bg-red-100 text-red-800 border-red-300;
+  }
+  .urgency-urgent {
+    @apply bg-orange-100 text-orange-800 border-orange-300;
+  }
+  .urgency-semi-urgent {
+    @apply bg-yellow-100 text-yellow-800 border-yellow-300;
+  }
+  .urgency-routine {
+    @apply bg-green-100 text-green-800 border-green-300;
+  }
+}
+
+/* Pulse animation for processing state */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Kafka event animation */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}

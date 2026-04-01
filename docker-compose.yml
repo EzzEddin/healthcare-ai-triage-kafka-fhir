@@ -1,0 +1,134 @@
+version: "3.8"
+
+# =============================================================================
+# Steer Health POC - Infrastructure
+# =============================================================================
+# This docker-compose defines the distributed infrastructure:
+#
+# KAFKA EXPLAINED (for distributed systems newcomers):
+# ----------------------------------------------------
+# Think of Kafka as a high-speed, durable conveyor belt system in a factory.
+#
+# - TOPICS are named conveyor belts (e.g., "patient.intake", "triage.result")
+# - PRODUCERS place messages onto a belt (our Node.js API writes patient data)
+# - CONSUMERS read messages off the belt (our Python AI service processes them)
+# - PARTITIONS split a belt into parallel lanes for throughput
+# - CONSUMER GROUPS let multiple workers share the load without duplicating work
+# - OFFSETS are bookmarks so consumers know where they left off
+#
+# Why Kafka in healthcare?
+# 1. DURABILITY: Messages are persisted to disk. If the AI service crashes,
+#    no patient data is lost - it picks up where it left off.
+# 2. ORDERING: Messages within a partition are strictly ordered - critical
+#    when processing clinical events in sequence.
+# 3. REPLAY: You can re-process historical events (audit trail, compliance).
+# 4. DECOUPLING: The intake API doesn't need to know about the AI service.
+#    Add new consumers (billing, analytics, EHR sync) without changing producers.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Zookeeper: Kafka's coordination service (manages broker metadata)
+  # In production on GKE, you'd use Confluent or Strimzi operators instead.
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_OPTS: "-Dzookeeper.4lw.commands.whitelist=ruok,srvr,stat"
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok || curl -sf http://localhost:8080/commands/ruok | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Kafka Broker: The message bus that connects all our services
+  #
+  # KEY CONCEPTS:
+  # - This single broker is fine for dev. Production uses 3+ brokers for
+  #   fault tolerance (if one dies, others have replicas of the data).
+  # - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 because we only have 1 broker.
+  #   In prod on GKE, this would be 3.
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:9092
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL: Persistent storage for patient records, triage results, FHIR
+  # In production, this would be Cloud SQL on GCP.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: steer_health
+      POSTGRES_USER: steer
+      POSTGRES_PASSWORD: steer_dev_2024
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U steer -d steer_health
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis: Used for two purposes:
+  # 1. CACHING: Store recent triage results for fast dashboard loads
+  # 2. PUB/SUB: Push real-time updates to WebSocket clients
+  #
+  # Redis Pub/Sub is simpler than Kafka - it's fire-and-forget with no
+  # persistence. Perfect for ephemeral UI updates, NOT for critical data.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: redis-cli ping
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Kafka UI: Visual tool to inspect topics, messages, consumer groups
+  # Open http://localhost:8080 to see Kafka in action
+  # ---------------------------------------------------------------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: steer-health-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  pgdata:
